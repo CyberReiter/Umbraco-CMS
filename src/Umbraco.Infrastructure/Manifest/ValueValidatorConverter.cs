@@ -1,3 +1,5 @@
+using System.Text.Json;
+using System.Text.Json.Nodes;
 using Newtonsoft.Json.Linq;
 using Umbraco.Cms.Core.PropertyEditors;
 using Umbraco.Cms.Infrastructure.Serialization;
@@ -7,7 +9,7 @@ namespace Umbraco.Cms.Core.Manifest;
 /// <summary>
 ///     Implements a json read converter for <see cref="IValueValidator" />.
 /// </summary>
-internal class ValueValidatorConverter : JsonReadConverter<IValueValidator>
+internal class ValueValidatorConverter : SystemTextJsonReadConverter<IValueValidator>
 {
     private readonly ManifestValueValidatorCollection _validators;
 
@@ -16,16 +18,19 @@ internal class ValueValidatorConverter : JsonReadConverter<IValueValidator>
     /// </summary>
     public ValueValidatorConverter(ManifestValueValidatorCollection validators) => _validators = validators;
 
-    protected override IValueValidator Create(Type objectType, string path, JObject jObject)
+    protected override Func<IValueValidator> Create(JsonElement json)
     {
-        var type = jObject["type"]?.Value<string>();
+        string? type = json.GetProperty("type").GetString();
         if (string.IsNullOrWhiteSpace(type))
         {
             throw new InvalidOperationException("Could not get the type of the validator.");
         }
 
-        return _validators.GetByName(type);
+        return () => _validators.GetByName(type);
+    }
 
-        // jObject["configuration"] is going to be deserialized in a Configuration property, if any
+    protected override void FillProperties(IValueValidator target, JsonElement json, JsonSerializerOptions options)
+    {
+        return;
     }
 }

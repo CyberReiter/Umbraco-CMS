@@ -1,6 +1,6 @@
 using System.Text;
+using System.Text.Json;
 using Microsoft.Extensions.Logging;
-using Newtonsoft.Json;
 using Umbraco.Cms.Core.Cache;
 using Umbraco.Cms.Core.Hosting;
 using Umbraco.Cms.Core.IO;
@@ -131,11 +131,11 @@ public class ManifestParser : IManifestParser
             throw new ArgumentException("Value can't be empty or consist only of white-space characters.", nameof(text));
         }
 
-        PackageManifest? manifest = JsonConvert.DeserializeObject<PackageManifest>(
-            text,
-            new DataEditorConverter(_dataValueEditorFactory, _ioHelper, _localizedTextService, _shortStringHelper, _jsonSerializer),
-            new ValueValidatorConverter(_validators),
-            new DashboardAccessRuleConverter());
+        JsonSerializerOptions options = new JsonSerializerOptions();
+        options.Converters.Add(new DataEditorConverter(_dataValueEditorFactory, _ioHelper, _localizedTextService, _shortStringHelper, _jsonSerializer));
+        options.Converters.Add(new ValueValidatorConverter(_validators));
+        options.Converters.Add(new DashboardAccessRuleConverter());
+        PackageManifest? manifest = JsonSerializer.Deserialize<PackageManifest>(text, options);
 
         // scripts and stylesheets are raw string, must process here
         for (var i = 0; i < manifest!.Scripts.Length; i++)

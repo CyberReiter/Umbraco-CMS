@@ -1,4 +1,5 @@
-﻿using System.Reflection;
+using System.Reflection;
+using System.Text.Json.Nodes;
 using Newtonsoft.Json;
 using Newtonsoft.Json.Linq;
 using Umbraco.Cms.Core;
@@ -16,7 +17,6 @@ public class EditorConfigurationParser : IEditorConfigurationParser
         // turning everything back into a JToken... might not be fastest but is simplest
         // for now
         var o = new JObject();
-
         foreach (ConfigurationField field in fields)
         {
             // field only, JsonPropertyAttribute is ignored here

@@ -1,5 +1,9 @@
+using System.IdentityModel.Tokens.Jwt;
+using System.Text.Json;
+using System.Text.Json.Nodes;
 using Newtonsoft.Json;
 using Newtonsoft.Json.Linq;
+using NPoco.fastJSON;
 using Umbraco.Cms.Core.IO;
 using Umbraco.Cms.Core.PropertyEditors;
 using Umbraco.Cms.Core.Serialization;
@@ -13,7 +17,7 @@ namespace Umbraco.Cms.Core.Manifest;
 /// <summary>
 ///     Provides a json read converter for <see cref="IDataEditor" /> in manifests.
 /// </summary>
-internal class DataEditorConverter : JsonReadConverter<IDataEditor>
+internal class DataEditorConverter : SystemTextJsonReadConverter<IDataEditor>
 {
     private readonly IDataValueEditorFactory _dataValueEditorFactory;
     private readonly IIOHelper _ioHelper;
@@ -40,80 +44,72 @@ internal class DataEditorConverter : JsonReadConverter<IDataEditor>
     }
 
     /// <inheritdoc />
-    protected override IDataEditor Create(Type objectType, string path, JObject jobject)
+    protected override Func<IDataEditor> Create(JsonElement json)
     {
         // in PackageManifest, property editors are IConfiguredDataEditor[] whereas
         // parameter editors are IDataEditor[] - both will end up here because we handle
         // IDataEditor and IConfiguredDataEditor implements it, but we can check the
         // type to figure out what to create
         EditorType type = EditorType.PropertyValue;
-
-        var isPropertyEditor = path.StartsWith("propertyEditors[");
-
-        if (isPropertyEditor)
+        if (json.TryGetProperty("isParameterEditor", out JsonElement value) && value.GetBoolean() == true)
         {
-            // property editor
-            jobject["isPropertyEditor"] = JToken.FromObject(true);
-            if (jobject["isParameterEditor"] is JToken jToken && jToken.Value<bool>())
-            {
-                type |= EditorType.MacroParameter;
-            }
-        }
-        else
-        {
-            // parameter editor
-            type = EditorType.MacroParameter;
+            type |= EditorType.MacroParameter;
+            return () => new DataEditor(_dataValueEditorFactory, type);
         }
 
-        return new DataEditor(_dataValueEditorFactory, type);
+        type = EditorType.MacroParameter;
+        return () => new DataEditor(_dataValueEditorFactory, type);
     }
 
-    /// <inheritdoc />
-    protected override void Deserialize(JObject jobject, IDataEditor target, JsonSerializer serializer)
+    protected override void FillProperties(IDataEditor target, JsonElement json, JsonSerializerOptions options)
     {
-        // see Create above, target is either DataEditor (parameter) or ConfiguredDataEditor (property)
-        if (!(target is DataEditor dataEditor))
-        {
-            throw new Exception("panic.");
-        }
+        //if (!(target is DataEditor dataEditor))
+        //{
+        //    throw new Exception("panic.");
+        //}
 
-        if (jobject["isPropertyEditor"] is JToken jtoken && jtoken.Value<bool>())
-        {
-            PrepareForPropertyEditor(jobject, dataEditor);
-        }
-        else
-        {
-            PrepareForParameterEditor(jobject, dataEditor);
-        }
+        //if (json.GetProperty("propertyEditors").ValueKind == JsonValueKind.Array)
+        //{
+        //    PrepareForPropertyEditor(json, dataEditor);
+        //}
+        //else
+        //{
+        //    PrepareForParameterEditor(json, dataEditor);
+        //}
 
-        base.Deserialize(jobject, target, serializer);
+
     }
 
-    private static JArray RewriteValidators(JObject validation)
+    private static JsonArray RewriteValidators(JsonNode validation)
     {
-        var jarray = new JArray();
+        JsonArray jArray = new JsonArray();
+        //foreach (KeyValuePair<string, JToken?> v in validation.AsValue().)
+        //{
+        //    var key = v.Key;
+        //    JToken? val = v.Value;
+        //    var jo = new JObject { { "type", key }, { "configuration", val } };
+        //    jArray.Add(jo);
+        //}
 
-        foreach (KeyValuePair<string, JToken?> v in validation)
-        {
-            var key = v.Key;
-            JToken? val = v.Value;
-            var jo = new JObject { { "type", key }, { "configuration", val } };
-            jarray.Add(jo);
-        }
-
-        return jarray;
+        return jArray;
     }
 
-    private void PrepareForPropertyEditor(JObject jobject, DataEditor target)
+    private void PrepareForPropertyEditor(JsonElement json, DataEditor target)
     {
-        if (jobject["editor"] == null)
+        JsonObject? node = JsonObject.Create(json);
+        if (node is null)
+        {
+            throw new InvalidOperationException("Invalid editor json");
+        }
+
+        if (node["editor"] is null)
         {
             throw new InvalidOperationException("Missing 'editor' value.");
         }
 
-        if (jobject.Property(SupportsReadOnly) is null)
+        if (node[SupportsReadOnly] is null)
         {
-            jobject[SupportsReadOnly] = false;
+            node[SupportsReadOnly] = false;
         }
 
         // explicitly assign a value editor of type ValueEditor
@@ -128,41 +124,44 @@ internal class DataEditorConverter : JsonReadConverter<IDataEditor>
         // }
         // and we need to turn this into a list of IPropertyValidator
         // so, rewrite the json structure accordingly
-        if (jobject["editor"]?["validation"] is JObject validation)
+        JsonNode? validation = node["editor"]?["validation"];
+        if (validation is not null)
         {
-            jobject["editor"]!["validation"] = RewriteValidators(validation);
+            node["editor"]!["validation"] = RewriteValidators(validation);
         }
 
-        if (jobject["editor"]?["view"] is JValue view)
+        JsonNode? view = node["editor"]?["view"];
+        if (view is not null)
         {
-            jobject["editor"]!["view"] = RewriteVirtualUrl(view);
+            node["editor"]!["view"] = RewriteVirtualUrl(view);
         }
 
-        var prevalues = jobject["prevalues"] as JObject;
-        var defaultConfig = jobject["defaultConfig"] as JObject;
-        if (prevalues != null || defaultConfig != null)
+        JsonNode? prevalues = node["prevalues"];
+        JsonNode? defaultConfig = node["defaultConfig"];
+        if (prevalues is not null || defaultConfig is not null)
         {
             // explicitly assign a configuration editor of type ConfigurationEditor
             // (else the deserializer will try to read it before setting it)
             // (and besides it's an interface)
             target.ExplicitConfigurationEditor = new ConfigurationEditor();
 
-            var config = new JObject();
-            if (prevalues != null)
+            var config = JsonValue.Create(prevalues);
+            if (prevalues is not null && config is not null)
             {
-                config = prevalues;
-
                 // see note about validators, above - same applies to field validators
-                if (config["fields"] is JArray jarray)
+                if (config["fields"] is JsonArray jarray)
                 {
-                    foreach (JToken field in jarray)
+                    foreach (JsonNode? field in jarray)
                     {
-                        if (field["validation"] is JObject fvalidation)
+                        if (field is null)
+                            continue;
+
+                        if (field["validation"] is JsonNode fvalidation)
                         {
                             field["validation"] = RewriteValidators(fvalidation);
                         }
 
-                        if (field["view"] is JValue fview)
+                        if (field["view"] is JsonNode fview)
                         {
                             field["view"] = RewriteVirtualUrl(fview);
                         }
@@ -172,22 +171,22 @@ internal class DataEditorConverter : JsonReadConverter<IDataEditor>
 
             // in the manifest, default configuration is at editor level
             // move it down to configuration editor level so it can be deserialized properly
-            if (defaultConfig != null)
+            if (defaultConfig is not null && config is not null)
             {
                 config["defaultConfig"] = defaultConfig;
-                jobject.Remove("defaultConfig");
+                node.Remove("defaultConfig");
             }
 
             // in the manifest, configuration is named 'prevalues', rename
             // it is important to do this LAST
-            jobject["config"] = config;
-            jobject.Remove("prevalues");
+            node["config"] = config;
+            node.Remove("prevalues");
         }
     }
 
-    private string? RewriteVirtualUrl(JValue view) => _ioHelper.ResolveRelativeOrVirtualUrl(view.Value as string);
+    private string? RewriteVirtualUrl(JsonNode view) => _ioHelper.ResolveRelativeOrVirtualUrl(view.ToString());
 
-    private void PrepareForParameterEditor(JObject jobject, DataEditor target)
+    private void PrepareForParameterEditor(JsonElement json, DataEditor target)
     {
         // in a manifest, a parameter editor looks like:
         //
@@ -200,32 +199,36 @@ internal class DataEditorConverter : JsonReadConverter<IDataEditor>
         //
         // the view is at top level, but should be down one level to be properly
         // deserialized as a ParameterValueEditor property -> need to move it
-        if (jobject.Property("view") != null)
+        JsonObject? node = JsonObject.Create(json);
+        if (node is not null)
         {
-            // explicitly assign a value editor of type ParameterValueEditor
-            target.ExplicitValueEditor = new DataValueEditor(_textService, _shortStringHelper, _jsonSerializer);
+            if (node["view"] is not null)
+            {
+                // explicitly assign a value editor of type ParameterValueEditor
+                target.ExplicitValueEditor = new DataValueEditor(_textService, _shortStringHelper, _jsonSerializer);
 
-            // move the 'view' property
-            jobject["editor"] = new JObject { ["view"] = jobject["view"] };
-            jobject.Property("view")?.Remove();
-        }
+                // move the 'view' property
+                node["editor"] = new JsonObject { ["view"] = node["view"] };
+                node["view"] = null;
+            }
 
-        if (jobject.Property(SupportsReadOnly) is null)
-        {
-            jobject[SupportsReadOnly] = false;
-        }
+            if (node[SupportsReadOnly] is null)
+            {
+                node[SupportsReadOnly] = false;
+            }
 
-        // in the manifest, default configuration is named 'config', rename
-        if (jobject["config"] is JObject config)
-        {
-            jobject["defaultConfig"] = config;
-            jobject.Remove("config");
-        }
+            // in the manifest, default configuration is named 'config', rename
+            if (node["config"] is JsonObject config)
+            {
+                node["defaultConfig"] = config;
+                node.Remove("config");
+            }
 
-        // We need to null check, if view do not exists, then editor do not exists
-        if (jobject["editor"]?["view"] is JValue view)
-        {
-            jobject["editor"]!["view"] = RewriteVirtualUrl(view);
+            // We need to null check, if view do not exists, then editor do not exists
+            if (node["editor"]?["view"] is JsonValue view)
+            {
+                node["editor"]!["view"] = RewriteVirtualUrl(view);
+            }
         }
     }
 }

@@ -1,4 +1,5 @@
 using System.Runtime.Serialization;
+using System.Text.Json.Serialization;
 using Umbraco.Cms.Core.PropertyEditors;
 using Umbraco.Extensions;
 
@@ -81,12 +82,14 @@ public class PackageManifest
     ///     Gets or sets the property editors listed in the manifest.
     /// </summary>
     [DataMember(Name = "propertyEditors")]
+    [JsonPropertyName("propertyEditors")]
     public IDataEditor[] PropertyEditors { get; set; } = Array.Empty<IDataEditor>();
 
     /// <summary>
     ///     Gets or sets the parameter editors listed in the manifest.
     /// </summary>
     [DataMember(Name = "parameterEditors")]
+    [JsonPropertyName("parameterEditors")]
     public IDataEditor[] ParameterEditors { get; set; } = Array.Empty<IDataEditor>();
 
     /// <summary>
