@@ -1,6 +1,5 @@
+using System.Text.Json;
 using Microsoft.Extensions.Options;
-using Newtonsoft.Json;
-using Newtonsoft.Json.Linq;
 using Umbraco.Cms.Core.Configuration.Models;
 using Umbraco.Cms.Core.Hosting;
 using Umbraco.Cms.Core.Manifest;
@@ -240,8 +239,8 @@ public class BackOfficeWebAssets
     /// <returns></returns>
     private string[]? GetScriptsForBackOfficeCore()
     {
-        JArray? resources = JsonConvert.DeserializeObject<JArray>(Resources.JsInitialize);
-        return resources?.Where(x => x.Type == JTokenType.String).Select(x => x.ToString()).ToArray();
+        // The replace may look weird but it is still 2x faster than using Newtonsoft
+        return JsonSerializer.Deserialize<string[]>(Resources.JsInitialize.Replace('\'', '"'));
     }
 
     /// <summary>
@@ -280,8 +279,7 @@ public class BackOfficeWebAssets
     /// <returns></returns>
     private string[]? GetScriptsForTinyMce()
     {
-        JArray? resources = JsonConvert.DeserializeObject<JArray>(Resources.TinyMceInitialize);
-        return resources?.Where(x => x.Type == JTokenType.String).Select(x => x.ToString()).ToArray();
+        return JsonSerializer.Deserialize<string[]>(Resources.TinyMceInitialize.Replace('\'', '"'));
     }
 
     /// <summary>
@@ -290,8 +288,7 @@ public class BackOfficeWebAssets
     /// <returns></returns>
     private string[]? GetScriptsForPreview()
     {
-        JArray? resources = JsonConvert.DeserializeObject<JArray>(Resources.PreviewInitialize);
-        return resources?.Where(x => x.Type == JTokenType.String).Select(x => x.ToString()).ToArray();
+        return JsonSerializer.Deserialize<string[]>(Resources.PreviewInitialize.Replace('\'', '"'));
     }
 
     /// <summary>
