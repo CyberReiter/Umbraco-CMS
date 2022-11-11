@@ -2,9 +2,7 @@ using System.IO;
 using System.Text.Json;
 using System.Text.Json.Nodes;
 using System.Text.Json.Serialization.Metadata;
-using Newtonsoft.Json;
-using Newtonsoft.Json.Linq;
-using NPoco.fastJSON;
+using Microsoft.CodeAnalysis.CSharp.Syntax;
 using Org.BouncyCastle.Asn1.X509;
 using Umbraco.Cms.Core.IO;
 using Umbraco.Cms.Core.PropertyEditors;
@@ -75,16 +73,37 @@ internal class DataEditorConverter : JsonNetReadConverter<IDataEditor>
     public override IDataEditor? Read(ref Utf8JsonReader reader, Type typeToConvert, JsonSerializerOptions options)
     {
         JsonElement json = JsonElement.ParseValue(ref reader);
-        options.TypeInfoResolver = Create(json, options);
-        JsonNode node = JsonObject.Create(json);
+        DefaultJsonTypeInfoResolver resolver = new DefaultJsonTypeInfoResolver();
+        resolver.Modifiers.Add(m => Create(json, options));
+        options.TypeInfoResolver = resolver;
+        JsonObject? node = JsonObject.Create(json);
+        if (node == null)
+        {
+            return null;
+        }
+
+        DataEditor? editor = null;
         if (node["isPropertyEditor"] is JsonNode isPropEditor && isPropEditor.GetValue<bool>())
         {
-            PrepareForPropertyEditor(node, dataEditor);
+            PrepareForPropertyEditor(node);
+            editor = JsonSerializer.Deserialize<DataEditor>(node);
+            if(editor != null)
+            {
+                editor.ExplicitConfigurationEditor = editor?.DefaultConfiguration == null ? null : new ConfigurationEditor();
+            }
         }
         else
         {
-            PrepareForParameterEditor(node, dataEditor);
+            PrepareForParameterEditor(node);
+            editor = JsonSerializer.Deserialize<DataEditor>(node);
         }
+
+        if (editor != null && editor.ExplicitValueEditor == null)
+        {
+            editor.ExplicitValueEditor = new DataValueEditor(_textService, _shortStringHelper, _jsonSerializer);
+        }
+
+        return editor;
     }
 
     private static JsonArray RewriteValidators(JsonObject validation)
@@ -102,7 +121,7 @@ internal class DataEditorConverter : JsonNetReadConverter<IDataEditor>
         return jarray;
     }
 
-    private void PrepareForPropertyEditor(JsonObject jobject, DataEditor target)
+    private void PrepareForPropertyEditor(JsonObject jobject)
     {
         if (jobject["editor"] == null)
         {
@@ -113,11 +132,6 @@ internal class DataEditorConverter : JsonNetReadConverter<IDataEditor>
         {
             jobject[SupportsReadOnly] = false;
         }
-
-        // explicitly assign a value editor of type ValueEditor
-        // (else the deserializer will try to read it before setting it)
-        // (and besides it's an interface)
-        target.ExplicitValueEditor = new DataValueEditor(_textService, _shortStringHelper, _jsonSerializer);
 
         // in the manifest, validators are a simple dictionary eg
         // {
@@ -143,7 +157,7 @@ internal class DataEditorConverter : JsonNetReadConverter<IDataEditor>
             // explicitly assign a configuration editor of type ConfigurationEditor
             // (else the deserializer will try to read it before setting it)
             // (and besides it's an interface)
-            target.ExplicitConfigurationEditor = new ConfigurationEditor();
+
 
             var config = new JsonObject();
             if (prevalues != null)
@@ -155,6 +169,9 @@ internal class DataEditorConverter : JsonNetReadConverter<IDataEditor>
                 {
                     foreach (JsonNode? field in jarray)
                     {
+                        if (field == null)
+                            continue;
+
                         if (field["validation"] is JsonObject fvalidation)
                         {
                             field["validation"] = RewriteValidators(fvalidation);
@@ -185,7 +202,7 @@ internal class DataEditorConverter : JsonNetReadConverter<IDataEditor>
 
     private string? RewriteVirtualUrl(JsonValue view) => _ioHelper.ResolveRelativeOrVirtualUrl(view.GetValue<string>());
 
-    private void PrepareForParameterEditor(JsonObject jobject, DataEditor target)
+    private void PrepareForParameterEditor(JsonObject jobject)
     {
         // in a manifest, a parameter editor looks like:
         //
@@ -200,9 +217,6 @@ internal class DataEditorConverter : JsonNetReadConverter<IDataEditor>
         // deserialized as a ParameterValueEditor property -> need to move it
         if (jobject["view"] != null)
         {
-            // explicitly assign a value editor of type ParameterValueEditor
-            target.ExplicitValueEditor = new DataValueEditor(_textService, _shortStringHelper, _jsonSerializer);
-
             // move the 'view' property
             jobject["editor"] = new JsonObject { ["view"] = jobject["view"] };
             jobject.Remove("view");

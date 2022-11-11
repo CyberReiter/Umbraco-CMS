@@ -57,24 +57,26 @@ public class ManifestParserTests
     [Test]
     public void DelimitedValueValidator()
     {
-        const string json = @"{'propertyEditors': [
-    {
-        alias: 'Test.Test2',
-        name: 'Test 2',
-        isParameterEditor: true,
-        defaultConfig: { key1: 'some default val' },
-        editor: {
-            view: '~/App_Plugins/MyPackage/PropertyEditors/MyEditor.html',
-            valueType: 'int',
-            validation: {
-                delimited: {
-                    delimiter: ',',
-                    pattern: '^[a-zA-Z]*$'
+        const string json = """
+            {"propertyEditors": [
+                {
+                    "alias": "Test.Test2",
+                    "name": "Test 2",
+                    "isParameterEditor": true,
+                    "defaultConfig": { "key1": "some default val" },
+                    "editor": {
+                        "view": "~/App_Plugins/MyPackage/PropertyEditors/MyEditor.html",
+                        "valueType": "int",
+                        "validation": {
+                            "delimited": {
+                                "delimiter": ",",
+                                "pattern": "^[a-zA-Z]*$"
+                            }
+                        }
+                    }
                 }
-            }
-        }
-    }
-]}";
+            ]}
+            """;
 
         var manifest = _parser.ParseManifest(json);
 

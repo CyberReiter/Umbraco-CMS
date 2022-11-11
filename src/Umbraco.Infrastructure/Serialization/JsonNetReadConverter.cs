@@ -19,7 +19,9 @@ namespace Umbraco.Cms.Infrastructure.Serialization
         public override T? Read(ref Utf8JsonReader reader, Type typeToConvert, JsonSerializerOptions options)
         {
             JsonElement json = JsonElement.ParseValue(ref reader);
-            options.TypeInfoResolver = Create(json, options);
+            DefaultJsonTypeInfoResolver resolver = new DefaultJsonTypeInfoResolver();
+            resolver.Modifiers.Add(m => Create(json, options));
+            options.TypeInfoResolver = resolver;
             return JsonSerializer.Deserialize<T>(json, options);
         }
 
